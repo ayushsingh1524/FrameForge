@@ -8,3 +8,7 @@
 6. **Beta** — real user feedback, bug fixes, CI/CD deployment, accessibility and reproducible FPS/export reliability measurements.
 
 Performance numbers are acceptance goals only until measured on specified hardware, footage, and test setup. Scope and delivery dates will be adjusted based on actual implementation and test results.
+
+## Milestone 2 development branch
+
+Implemented in the proposed timeline-engine branch: normalized video tracks and clip placements, draggable track arrangement, timeline scrubbing, single-source synchronized preview, keyboard shortcuts, undo/redo and deterministic engine tests. Audio mixing, composited video layers, collision/ripple semantics, persistence and exports are **not yet implemented**. Browser acceptance testing is required before merging.
