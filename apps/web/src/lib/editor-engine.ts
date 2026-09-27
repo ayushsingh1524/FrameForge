@@ -143,7 +143,7 @@ export const initialHistory: History = {
 
 export function historyReducer(
   history: History,
-  action: TimelineAction | { type: "undo" | "redo" }
+  action: TimelineAction | { type: "undo" } | { type: "redo" }
 ): History {
   if (action.type === "undo") {
     if (!history.past.length) return history;
