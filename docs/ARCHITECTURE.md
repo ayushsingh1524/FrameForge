@@ -2,14 +2,14 @@
 
 ## Milestone 1 (implemented on foundation branch)
 
-- Next.js App Router editor handles imported videos via \`URL.createObjectURL\`, with local-only in-memory clip ranges and an HTMLVideoElement preview.
+- Next.js App Router editor handles imported videos via `URL.createObjectURL`, with local-only in-memory clip ranges and an HTMLVideoElement preview.
 - Clip ranges are non-destructive. The canvas currently represents a sequential list, not a fully synchronized or composited multitrack timeline.
 - FastAPI exposes a health check and Pydantic validated timeline request. Browser editor and API are intentionally not yet coupled for persistence.
 - GitHub Codespaces config provisions Node 22 and Python 3.12; GitHub Actions checks TypeScript and FastAPI contracts.
 
 ## Planned boundaries
 
-\`\`\`text
+```text
 Browser editor / timeline commands
       |            \
   preview worker    API / project metadata (PostgreSQL)
@@ -24,7 +24,7 @@ Browser editor / timeline commands
 
 AI agent -> proposed structured commands -> schema validation
          -> user approval -> editor command reducer -> undo history
-\`\`\`
+```
 
 ## Design constraints
 
