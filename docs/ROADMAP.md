@@ -12,3 +12,7 @@ Performance numbers are acceptance goals only until measured on specified hardwa
 ## Milestone 2 development branch
 
 Implemented in the proposed timeline-engine branch: normalized video tracks and clip placements, draggable track arrangement, timeline scrubbing, single-source synchronized preview, keyboard shortcuts, undo/redo and deterministic engine tests. Audio mixing, composited video layers, collision/ripple semantics, persistence and exports are **not yet implemented**. Browser acceptance testing is required before merging.
+
+## Milestone 2B: media previews
+
+The media-preview branch introduces bounded browser-generated JPEG thumbnails in the media bin and timeline, pure timestamp mapping tests and a documented cloud export contract. This is not a rendered output or persistent thumbnail cache. Waveforms and cloud export remain future work; test actual media in Codespaces before merging.
