@@ -11,6 +11,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { generateThumbnail, previewSourceTime } from "@/lib/media-preview";
 import {
   activeVideoClip,
   formatTime,
@@ -36,6 +37,8 @@ export function Editor() {
   const [playing, setPlaying] = useState(false);
   const [error, setError] = useState("");
   const [zoom, setZoom] = useState(1);
+  const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
+  const thumbnailsStarted = useRef(new Set<string>());
   const inputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const assetUrls = useRef<string[]>([]);
@@ -69,6 +72,30 @@ export function Editor() {
     });
     setAssets((current) => [...current, ...next]);
   }, []);
+
+  // Generate one low-resolution frame per source. Extraction is cancellable
+  // and deliberately separate from the editing history.
+  useEffect(() => {
+    const controller = new AbortController();
+    const pending = assets.filter(
+      (asset) => asset.duration > 0 && !thumbnailsStarted.current.has(asset.id)
+    );
+    pending.forEach((asset) => {
+      thumbnailsStarted.current.add(asset.id);
+      generateThumbnail(asset.objectUrl, asset.duration, controller.signal)
+        .then((image) => setThumbnails((current) => ({ ...current, [asset.id]: image })))
+        .catch((error: unknown) => {
+          if (error instanceof DOMException && error.name === "AbortError") {
+            thumbnailsStarted.current.delete(asset.id);
+          }
+          // Codec and extraction failures keep the existing placeholder.
+        });
+    });
+    return () => {
+      controller.abort();
+      pending.forEach((asset) => thumbnailsStarted.current.delete(asset.id));
+    };
+  }, [assets]);
 
   const onImport = (event: ChangeEvent<HTMLInputElement>) => {
     if (event.target.files) importFiles(event.target.files);
@@ -132,7 +159,7 @@ export function Editor() {
     };
     commit({ type: "add", clip });
     setSelectedId(clip.id);
-    setPlayhead(clip.timelineStart);
+    seek(clip.timelineStart);
   };
 
   const seek = useCallback((time: number) => {
@@ -208,7 +235,7 @@ export function Editor() {
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !active || !activeAsset) return;
-    const desired = active.sourceIn + (playhead - active.timelineStart);
+    const desired = previewSourceTime(active.sourceIn, active.sourceOut, active.timelineStart, playhead);
     if (Number.isFinite(desired) && Math.abs(video.currentTime - desired) > (playing ? 0.28 : 0.04)) {
       try { video.currentTime = Math.max(active.sourceIn, Math.min(active.sourceOut, desired)); }
       catch { /* Wait for metadata on source switch. */ }
@@ -267,7 +294,9 @@ export function Editor() {
           {sortedAssets.map((asset) => (
             <div key={asset.id} className="asset media-asset" draggable={asset.duration > 0}
               onDragStart={(event) => event.dataTransfer.setData("application/x-frameforge-asset", asset.id)}>
-              <span className="clip-icon">▶</span>
+              {thumbnails[asset.id] ? (
+                <img className="asset-thumbnail" src={thumbnails[asset.id]} alt="" width={64} height={36} />
+              ) : <span className="clip-icon">▶</span>}
               <span className="asset-text"><strong title={asset.name}>{asset.name}</strong><small>{asset.duration ? formatTime(asset.duration) : "Reading metadata…"}</small></span>
               <button className="asset-add" disabled={!asset.duration} onClick={() => addAsset(asset)} aria-label={`Add ${asset.name} to timeline`}>+</button>
             </div>
@@ -292,7 +321,7 @@ export function Editor() {
                   const video = event.currentTarget;
                   const position = playheadRef.current;
                   const current = activeVideoClip(timeline, position);
-                  if (current) video.currentTime = current.sourceIn + position - current.timelineStart;
+                  if (current) video.currentTime = previewSourceTime(current.sourceIn, current.sourceOut, current.timelineStart, position);
                   if (playingRef.current) video.play().catch(() => setPlaying(false));
                 }} />
             ) : (
@@ -303,7 +332,7 @@ export function Editor() {
             <button disabled={!duration} onClick={() => seek(0)} aria-label="Go to beginning">⏮</button>
             <button className="play-button" disabled={!duration} onClick={togglePlayback} aria-label={playing ? "Pause" : "Play"}>{playing ? "❚❚" : "▶"}</button>
             <span className="timecode">{formatTime(playhead)} / {formatTime(duration)}</span>
-            <span className="control-note">Single-source preview · multitrack compositing not yet available</span>
+            <span className="control-note">Thumbnail previews · single-source playback</span>
           </div>
         </div>
 
@@ -337,7 +366,8 @@ export function Editor() {
                         className={selectedId === clip.id ? "timeline-clip selected" : "timeline-clip"}
                         style={{ position: "absolute", left: clip.timelineStart * pixels, width: Math.max(35, length(clip) * pixels), height: 58, top: 7 }}
                         title={`${asset?.name ?? "Video"} — ${formatTime(clip.timelineStart)}`}>
-                        <strong>{asset?.name ?? "Video"}</strong><small>{length(clip).toFixed(1)}s</small>
+                        {thumbnails[clip.assetId] && <img className="clip-thumbnail" src={thumbnails[clip.assetId]} alt="" draggable={false} />}
+                        <span className="clip-copy"><strong>{asset?.name ?? "Video"}</strong><small>{length(clip).toFixed(1)}s</small></span>
                       </button>
                     );
                   })}
@@ -352,7 +382,7 @@ export function Editor() {
               <span className="playhead-indicator" style={{ left: playhead * pixels }} />
             </div>
           </div>
-          <p className="hint">Drag clips between video tracks. Arrow keys nudge a focused clip. Space: play/pause · S: split · Ctrl/Cmd+Z: undo.</p>
+          <p className="hint">Video thumbnails are local previews. Drag between tracks; arrow keys nudge a focused clip. Space: play/pause · S: split · Ctrl/Cmd+Z: undo.</p>
         </section>
       </section>
 
