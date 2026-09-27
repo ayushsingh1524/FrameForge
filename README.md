@@ -19,14 +19,14 @@ This branch contains:
 3. Run these commands in **two Codespaces terminals**:
 
    Terminal A:
-   \`\`\`bash
+   ```bash
    pnpm --dir apps/web dev --hostname 0.0.0.0
-   \`\`\`
+   ```
 
    Terminal B:
-   \`\`\`bash
+   ```bash
    python -m uvicorn app.main:app --app-dir apps/api --host 0.0.0.0 --port 8000 --reload
-   \`\`\`
+   ```
 
 4. Open the forwarded port **3000** for the editor and port **8000/docs** for API documentation.
 
@@ -34,10 +34,10 @@ A Codespaces container uses cloud compute, though browser assets temporarily res
 
 ## Validate
 
-\`\`\`bash
+```bash
 pnpm --dir apps/web typecheck
 python -m pytest apps/api/tests -q
-\`\`\`
+```
 
 ## Planned architecture
 
