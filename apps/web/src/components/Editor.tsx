@@ -118,10 +118,13 @@ export function Editor() {
       probe.preload = "metadata";
       probe.src = asset.objectUrl;
       probe.onloadedmetadata = () => {
-        if (Number.isFinite(probe.duration) && probe.duration > 0) {
+        // Capture before unloading: React may execute the state updater after
+        // probe.load(), at which point probe.duration has reset to NaN.
+        const measuredDuration = probe.duration;
+        if (Number.isFinite(measuredDuration) && measuredDuration > 0) {
           setAssets((current) =>
             current.map((item) =>
-              item.id === asset.id ? { ...item, duration: probe.duration } : item
+              item.id === asset.id ? { ...item, duration: measuredDuration } : item
             )
           );
         } else {
