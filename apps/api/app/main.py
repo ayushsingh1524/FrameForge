@@ -177,7 +177,10 @@ def plan_ai_edit(payload: AiEditRequest) -> dict:
         )
         command = json.loads(response.text)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Gemini planner failed: {type(exc).__name__}") from exc
+        # Surface Gemini's HTTP status/message for development diagnostics; never include credentials.
+        status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+        message = str(exc).replace(api_key, "[redacted]")
+        raise HTTPException(status_code=502, detail=f"Gemini planner failed ({status or 'unknown'}): {message[:500]}") from exc
     return {"command": command, "model": os.getenv("FRAMEFORGE_AI_MODEL", "gemini-2.5-flash-lite")}
 
 
