@@ -13,6 +13,7 @@ import {
 } from "react";
 import { generateThumbnail, previewSourceTime } from "@/lib/media-preview";
 import { decodeWaveform } from "@/lib/audio-waveform";
+import { parseLocalEditInstruction, validateAiEditCommand } from "@/lib/ai-edit-command";
 import { createProjectManifest, loadProjectManifest, relinkAssetId, saveProjectManifest, type ProjectManifest } from "@/lib/project-manifest";
 import {
   activeVideoClip,
@@ -38,6 +39,8 @@ export function Editor() {
   const [playhead, setPlayhead] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [error, setError] = useState("");
+  const [aiInstruction, setAiInstruction] = useState("");
+  const [aiStatus, setAiStatus] = useState("Local command parser · no LLM connected");
   const [zoom, setZoom] = useState(1);
   const [saveStatus, setSaveStatus] = useState("Local project not saved");
   const [restoredProject, setRestoredProject] = useState<ProjectManifest | null>(null);
@@ -368,6 +371,22 @@ export function Editor() {
     }
   };
 
+  const runAiEdit = useCallback(() => {
+    const command = parseLocalEditInstruction(aiInstruction, timeline);
+    if (!command) {
+      setAiStatus('Command not understood. Try: "Split the first clip at 3 seconds".');
+      return;
+    }
+    const result = validateAiEditCommand(command, timeline);
+    if (!result.ok) {
+      setAiStatus(`Rejected: ${result.error}`);
+      return;
+    }
+    commit(result.action);
+    setAiStatus(`Applied safely: ${result.summary} · undo available`);
+    setAiInstruction("");
+  }, [aiInstruction, timeline, commit]);
+
   const sortedAssets = useMemo(() => assets, [assets]);
 
   return (
@@ -499,6 +518,14 @@ export function Editor() {
       </section>
 
       <aside className="inspector">
+        <div className="section-label">AI EDIT COMMANDS</div>
+        <div className="ai-command-box">
+          <textarea value={aiInstruction} onChange={(event) => setAiInstruction(event.target.value)}
+            placeholder="Split the first clip at 3 seconds" rows={3} />
+          <button className="primary" disabled={!aiInstruction.trim() || !timeline.clips.length} onClick={runAiEdit}>Apply command</button>
+          <small>{aiStatus}</small>
+          <p className="hint">Milestone 4A uses a deterministic local parser, not an LLM. Parsed commands are validated before they reach the undoable timeline engine.</p>
+        </div>
         <div className="section-label">CLIP INSPECTOR</div>
         {selected && selectedAsset ? (
           <>
