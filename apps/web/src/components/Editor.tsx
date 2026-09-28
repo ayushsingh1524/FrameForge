@@ -13,6 +13,7 @@ import {
 } from "react";
 import { generateThumbnail, previewSourceTime } from "@/lib/media-preview";
 import { decodeWaveform } from "@/lib/audio-waveform";
+import { createProjectManifest, loadProjectManifest, saveProjectManifest } from "@/lib/project-manifest";
 import {
   activeVideoClip,
   formatTime,
@@ -38,6 +39,8 @@ export function Editor() {
   const [playing, setPlaying] = useState(false);
   const [error, setError] = useState("");
   const [zoom, setZoom] = useState(1);
+  const [saveStatus, setSaveStatus] = useState("Local project not saved");
+  const projectId = useRef(crypto.randomUUID());
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
   const [waveforms, setWaveforms] = useState<Record<string, number[]>>({});
   const [waveformStatus, setWaveformStatus] = useState<Record<string, "reading" | "ready" | "unavailable">>({});
@@ -60,6 +63,22 @@ export function Editor() {
   }, []);
 
   const commit = useCallback((action: TimelineAction) => dispatch(action), []);
+
+  const saveProject = useCallback(() => {
+    const manifest = createProjectManifest(timeline, assets, projectId.current);
+    saveProjectManifest(manifest);
+    setSaveStatus(`Saved locally · ${new Date(manifest.updatedAt).toLocaleTimeString()}`);
+  }, [timeline, assets]);
+
+  const inspectSavedProject = useCallback(() => {
+    const manifest = loadProjectManifest();
+    if (!manifest) {
+      setSaveStatus("No valid local project found");
+      return;
+    }
+    projectId.current = manifest.projectId;
+    setSaveStatus(`Saved project found · ${manifest.timeline.clips.length} clips · re-import media to restore playback`);
+  }, []);
 
   const importFiles = useCallback((files: FileList | File[]) => {
     const incoming = Array.from(files).filter((file) => file.type.startsWith("video/"));
@@ -320,8 +339,10 @@ export function Editor() {
 
       <section className="workspace">
         <header className="topbar">
-          <div><strong>Untitled project</strong><span className="pill">Timeline engine · local prototype</span></div>
+          <div><strong>Untitled project</strong><span className="pill">Versioned project manifest</span><small className="save-status">{saveStatus}</small></div>
           <div className="history-buttons">
+            <button onClick={saveProject} title="Persist timeline metadata in this browser">Save project</button>
+            <button onClick={inspectSavedProject} title="Validate the locally saved manifest">Check saved</button>
             <button disabled={!history.past.length} onClick={() => dispatch({ type: "undo" })} title="Undo (Ctrl/Cmd+Z)">↶ Undo</button>
             <button disabled={!history.future.length} onClick={() => dispatch({ type: "redo" })} title="Redo (Ctrl/Cmd+Shift+Z)">↷ Redo</button>
           </div>
