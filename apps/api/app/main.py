@@ -133,7 +133,7 @@ class AiEditRequest(BaseModel):
     tracks: list[AiTimelineTrack] = Field(min_length=1, max_length=100)
 
 
-AI_EDIT_SCHEMA = {
+AI_COMMAND_SCHEMA = {
     "type": "object",
     "properties": {
         "type": {"type": "string", "enum": ["split", "remove", "move", "trim"]},
@@ -145,6 +145,15 @@ AI_EDIT_SCHEMA = {
         "sourceOut": {"type": ["number", "null"]},
     },
     "required": ["type", "clipId", "at", "trackId", "timelineStart", "sourceIn", "sourceOut"],
+    "additionalProperties": False,
+}
+
+AI_EDIT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "commands": {"type": "array", "minItems": 1, "maxItems": 5, "items": AI_COMMAND_SCHEMA},
+    },
+    "required": ["commands"],
     "additionalProperties": False,
 }
 
@@ -160,10 +169,10 @@ def plan_ai_edit(payload: AiEditRequest) -> dict:
     }
     client = genai.Client(api_key=api_key)
     prompt = (
-        "You are FrameForge's edit planner. Convert exactly one user request into exactly one "
-        "structured timeline command. Use only IDs present in the supplied timeline. Never invent "
+        "You are FrameForge's edit planner. Convert the user request into an ordered plan of 1 to 5 "
+        "structured timeline commands. Use only IDs present in the supplied timeline. Never invent "
         "clips or tracks. Times are seconds. For relative language such as first/second clip, infer "
-        "from timelineStart order. Return the closest supported command: split, remove, move, or trim.\n\n"
+        "from timelineStart order. Return only supported commands: split, remove, move, or trim. Keep the plan minimal. \n\n"
         f"Timeline: {json.dumps(context)}\nUser edit request: {payload.instruction}"
     )
     configured_model = os.getenv("FRAMEFORGE_AI_MODEL")
@@ -183,8 +192,8 @@ def plan_ai_edit(payload: AiEditRequest) -> dict:
                     response_json_schema=AI_EDIT_SCHEMA,
                 ),
             )
-            command = json.loads(response.text)
-            return {"command": command, "model": model}
+            plan = json.loads(response.text)
+            return {"commands": plan["commands"], "model": model}
         except Exception as exc:
             last_error = exc
             status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
