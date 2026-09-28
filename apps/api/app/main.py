@@ -1,4 +1,9 @@
-from fastapi import FastAPI
+import json
+import os
+
+from fastapi import FastAPI, HTTPException
+from google import genai
+from google.genai import types
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, model_validator
 
@@ -8,6 +13,7 @@ app = FastAPI(title="FrameForge API", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origin_regex=r"https://[a-zA-Z0-9-]+-3000\.app\.github\.dev",
     allow_credentials=False,
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type"],
@@ -106,3 +112,97 @@ def validate_project(payload: ProjectManifest) -> dict[str, int | bool]:
         "asset_count": len(payload.assets),
         "clip_count": len(payload.timeline.clips),
     }
+
+
+class AiTimelineClip(BaseModel):
+    id: str = Field(min_length=1, max_length=128)
+    trackId: str = Field(min_length=1, max_length=128)
+    timelineStart: float = Field(ge=0)
+    sourceIn: float = Field(ge=0)
+    sourceOut: float = Field(gt=0)
+
+
+class AiTimelineTrack(BaseModel):
+    id: str = Field(min_length=1, max_length=128)
+    kind: str
+
+
+class AiEditRequest(BaseModel):
+    instruction: str = Field(min_length=1, max_length=1000)
+    clips: list[AiTimelineClip] = Field(min_length=1, max_length=200)
+    tracks: list[AiTimelineTrack] = Field(min_length=1, max_length=100)
+
+
+AI_EDIT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "type": {"type": "string", "enum": ["split", "remove", "move", "trim"]},
+        "clipId": {"type": "string"},
+        "at": {"type": ["number", "null"]},
+        "trackId": {"type": ["string", "null"]},
+        "timelineStart": {"type": ["number", "null"]},
+        "sourceIn": {"type": ["number", "null"]},
+        "sourceOut": {"type": ["number", "null"]},
+    },
+    "required": ["type", "clipId", "at", "trackId", "timelineStart", "sourceIn", "sourceOut"],
+    "additionalProperties": False,
+}
+
+
+def plan_ai_edit(payload: AiEditRequest) -> dict:
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="GEMINI_API_KEY is not configured on the API server.")
+
+    context = {
+        "clips": [clip.model_dump() for clip in payload.clips],
+        "tracks": [track.model_dump() for track in payload.tracks],
+    }
+    client = genai.Client(api_key=api_key)
+    prompt = (
+        "You are FrameForge's edit planner. Convert exactly one user request into exactly one "
+        "structured timeline command. Use only IDs present in the supplied timeline. Never invent "
+        "clips or tracks. Times are seconds. For relative language such as first/second clip, infer "
+        "from timelineStart order. Return the closest supported command: split, remove, move, or trim.\n\n"
+        f"Timeline: {json.dumps(context)}\nUser edit request: {payload.instruction}"
+    )
+    configured_model = os.getenv("FRAMEFORGE_AI_MODEL")
+    models = [configured_model] if configured_model else [
+        "gemini-3.1-flash-lite",
+        "gemini-3.5-flash-lite",
+        "gemini-3.7-flash",
+    ]
+    last_error = None
+    for model in models:
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_json_schema=AI_EDIT_SCHEMA,
+                ),
+            )
+            command = json.loads(response.text)
+            return {"command": command, "model": model}
+        except Exception as exc:
+            last_error = exc
+            status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+            # Only fail over for provider capacity/rate-limit errors.
+            if status not in (429, 503):
+                break
+
+    assert last_error is not None
+    status = getattr(last_error, "status_code", None) or getattr(last_error, "code", None)
+    message = str(last_error).replace(api_key, "[redacted]")
+    raise HTTPException(
+        status_code=502,
+        detail=f"Gemini planner failed after model fallback ({status or 'unknown'}): {message[:500]}",
+    )
+
+
+@app.post("/api/ai/edit-command")
+def ai_edit_command(payload: AiEditRequest) -> dict:
+    # The model only proposes a command. The browser independently validates
+    # the proposal against the live timeline before dispatching an undoable action.
+    return plan_ai_edit(payload)

@@ -13,7 +13,7 @@ import {
 } from "react";
 import { generateThumbnail, previewSourceTime } from "@/lib/media-preview";
 import { decodeWaveform } from "@/lib/audio-waveform";
-import { parseLocalEditInstruction, validateAiEditCommand } from "@/lib/ai-edit-command";
+import { parseLocalEditInstruction, validateAiEditCommand, type AiEditCommand } from "@/lib/ai-edit-command";
 import { createProjectManifest, loadProjectManifest, relinkAssetId, saveProjectManifest, type ProjectManifest } from "@/lib/project-manifest";
 import {
   activeVideoClip,
@@ -40,7 +40,8 @@ export function Editor() {
   const [playing, setPlaying] = useState(false);
   const [error, setError] = useState("");
   const [aiInstruction, setAiInstruction] = useState("");
-  const [aiStatus, setAiStatus] = useState("Local command parser · no LLM connected");
+  const [aiStatus, setAiStatus] = useState("AI planner ready · validated before execution");
+  const [aiBusy, setAiBusy] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [saveStatus, setSaveStatus] = useState("Local project not saved");
   const [restoredProject, setRestoredProject] = useState<ProjectManifest | null>(null);
@@ -371,20 +372,47 @@ export function Editor() {
     }
   };
 
-  const runAiEdit = useCallback(() => {
-    const command = parseLocalEditInstruction(aiInstruction, timeline);
-    if (!command) {
-      setAiStatus('Command not understood. Try: "Split the first clip at 3 seconds".');
-      return;
+  const runAiEdit = useCallback(async () => {
+    setAiBusy(true);
+    setAiStatus("Asking AI planner…");
+    let command: AiEditCommand | null = null;
+    try {
+      const response = await fetch("/api/ai/edit-command", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          instruction: aiInstruction,
+          clips: timeline.clips.map(({ id, trackId, timelineStart, sourceIn, sourceOut }) => ({ id, trackId, timelineStart, sourceIn, sourceOut })),
+          tracks: timeline.tracks.map(({ id, kind }) => ({ id, kind })),
+        }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.detail ?? `AI planner failed (${response.status})`);
+      }
+      const body = await response.json() as { command: AiEditCommand };
+      command = body.command;
+    } catch (error) {
+      // Keep the deterministic parser as an explicit development fallback so
+      // the editor remains testable without credentials or network access.
+      command = parseLocalEditInstruction(aiInstruction, timeline);
+      if (!command) {
+        setAiStatus(`AI unavailable: ${error instanceof Error ? error.message : "request failed"}`);
+        setAiBusy(false);
+        return;
+      }
+      setAiStatus("AI unavailable · using deterministic fallback");
     }
     const result = validateAiEditCommand(command, timeline);
     if (!result.ok) {
       setAiStatus(`Rejected: ${result.error}`);
+      setAiBusy(false);
       return;
     }
     commit(result.action);
     setAiStatus(`Applied safely: ${result.summary} · undo available`);
     setAiInstruction("");
+    setAiBusy(false);
   }, [aiInstruction, timeline, commit]);
 
   const sortedAssets = useMemo(() => assets, [assets]);
@@ -522,9 +550,9 @@ export function Editor() {
         <div className="ai-command-box">
           <textarea value={aiInstruction} onChange={(event) => setAiInstruction(event.target.value)}
             placeholder="Split the first clip at 3 seconds" rows={3} />
-          <button className="primary" disabled={!aiInstruction.trim() || !timeline.clips.length} onClick={runAiEdit}>Apply command</button>
+          <button className="primary" disabled={aiBusy || !aiInstruction.trim() || !timeline.clips.length} onClick={() => void runAiEdit()}>{aiBusy ? "Planning…" : "Apply AI command"}</button>
           <small>{aiStatus}</small>
-          <p className="hint">Milestone 4A uses a deterministic local parser, not an LLM. Parsed commands are validated before they reach the undoable timeline engine.</p>
+          <p className="hint">Milestone 4B sends the instruction and timeline metadata to the server-side AI planner. Its structured proposal is validated in the browser before it reaches the undoable timeline engine. A limited deterministic parser remains as a development fallback.</p>
         </div>
         <div className="section-label">CLIP INSPECTOR</div>
         {selected && selectedAsset ? (
