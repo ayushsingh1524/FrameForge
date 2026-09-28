@@ -16,3 +16,7 @@ Implemented in the proposed timeline-engine branch: normalized video tracks and 
 ## Milestone 2B: media previews
 
 The media-preview branch introduces bounded browser-generated JPEG thumbnails in the media bin and timeline, pure timestamp mapping tests and a documented cloud export contract. This is not a rendered output or persistent thumbnail cache. Waveforms and cloud export remain future work; test actual media in Codespaces before merging.
+
+## Milestone 2C: embedded-audio waveform preview
+
+Decode imported video audio locally with Web Audio and render normalized waveform peaks in the audio lane. This is visualization only: the video element remains the playback source. Independent audio clips, gain automation, mixing, compositing and export remain future milestones.
