@@ -13,7 +13,7 @@ import {
 } from "react";
 import { generateThumbnail, previewSourceTime } from "@/lib/media-preview";
 import { decodeWaveform } from "@/lib/audio-waveform";
-import { createProjectManifest, loadProjectManifest, saveProjectManifest } from "@/lib/project-manifest";
+import { createProjectManifest, loadProjectManifest, relinkAssetId, saveProjectManifest, type ProjectManifest } from "@/lib/project-manifest";
 import {
   activeVideoClip,
   formatTime,
@@ -40,6 +40,7 @@ export function Editor() {
   const [error, setError] = useState("");
   const [zoom, setZoom] = useState(1);
   const [saveStatus, setSaveStatus] = useState("Local project not saved");
+  const [restoredProject, setRestoredProject] = useState<ProjectManifest | null>(null);
   const projectId = useRef(crypto.randomUUID());
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
   const [waveforms, setWaveforms] = useState<Record<string, number[]>>({});
@@ -70,6 +71,21 @@ export function Editor() {
     setSaveStatus(`Saved locally · ${new Date(manifest.updatedAt).toLocaleTimeString()}`);
   }, [timeline, assets]);
 
+  const restoreProject = useCallback(() => {
+    const manifest = loadProjectManifest();
+    if (!manifest) {
+      setSaveStatus("No valid local project found");
+      return;
+    }
+    projectId.current = manifest.projectId;
+    setRestoredProject(manifest);
+    setAssets([]);
+    setSelectedId(null);
+    seek(0);
+    dispatch({ type: "restore", timeline: manifest.timeline });
+    setSaveStatus(`Restored ${manifest.timeline.clips.length} clips · ${manifest.assets.length} source file(s) need relinking`);
+  }, []);
+
   const inspectSavedProject = useCallback(() => {
     const manifest = loadProjectManifest();
     if (!manifest) {
@@ -79,6 +95,44 @@ export function Editor() {
     projectId.current = manifest.projectId;
     setSaveStatus(`Saved project found · ${manifest.timeline.clips.length} clips · re-import media to restore playback`);
   }, []);
+
+  const probeDuration = (file: File) => new Promise<number>((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const probe = document.createElement("video");
+    probe.preload = "metadata";
+    probe.src = url;
+    probe.onloadedmetadata = () => {
+      const measured = probe.duration;
+      probe.removeAttribute("src"); probe.load(); URL.revokeObjectURL(url);
+      Number.isFinite(measured) && measured > 0 ? resolve(measured) : reject(new Error("Invalid duration"));
+    };
+    probe.onerror = () => { probe.removeAttribute("src"); probe.load(); URL.revokeObjectURL(url); reject(new Error("Decode failed")); };
+  });
+
+  const relinkFiles = useCallback(async (files: FileList | File[]) => {
+    if (!restoredProject) return;
+    const incoming = Array.from(files).filter((file) => file.type.startsWith("video/"));
+    let linked = 0;
+    for (const file of incoming) {
+      try {
+        const measuredDuration = await probeDuration(file);
+        const savedId = relinkAssetId(restoredProject.assets, { name: file.name, duration: measuredDuration });
+        if (!savedId) continue;
+        const objectUrl = URL.createObjectURL(file);
+        assetUrls.current.push(objectUrl);
+        const asset: MediaAsset = { id: savedId, name: file.name, objectUrl, duration: measuredDuration, kind: "video" };
+        setAssets((current) => [...current.filter((item) => item.id !== savedId), asset]);
+        setWaveformStatus((current) => ({ ...current, [savedId]: "reading" }));
+        decodeWaveform(file).then((peaks) => {
+          setWaveforms((current) => ({ ...current, [savedId]: peaks }));
+          setWaveformStatus((current) => ({ ...current, [savedId]: "ready" }));
+        }).catch(() => setWaveformStatus((current) => ({ ...current, [savedId]: "unavailable" })));
+        linked += 1;
+      } catch { /* Invalid/unsupported files remain missing. */ }
+    }
+    const totalLinked = new Set([...assets.map((asset) => asset.id), ...incoming.map((file) => restoredProject.assets.find((a) => a.name === file.name)?.id).filter(Boolean)]).size;
+    setSaveStatus(linked ? `Relinked media · ${Math.min(totalLinked, restoredProject.assets.length)}/${restoredProject.assets.length} sources available` : "No saved source matched those files");
+  }, [restoredProject, assets]);
 
   const importFiles = useCallback((files: FileList | File[]) => {
     const incoming = Array.from(files).filter((file) => file.type.startsWith("video/"));
@@ -128,7 +182,10 @@ export function Editor() {
   }, [assets]);
 
   const onImport = (event: ChangeEvent<HTMLInputElement>) => {
-    if (event.target.files) importFiles(event.target.files);
+    if (event.target.files) {
+      if (restoredProject) void relinkFiles(event.target.files);
+      else importFiles(event.target.files);
+    }
     event.target.value = "";
   };
 
@@ -318,9 +375,14 @@ export function Editor() {
       <aside className="sidebar">
         <div className="brand"><span className="brand-mark">F</span><div><strong>FrameForge</strong><small>EDITOR / MILESTONE 02</small></div></div>
         <div className="section-label">YOUR MEDIA</div>
-        <button className="primary" onClick={() => inputRef.current?.click()}>+ Import video</button>
+        <button className="primary" onClick={() => inputRef.current?.click()}>{restoredProject ? "+ Relink video" : "+ Import video"}</button>
         <input ref={inputRef} type="file" accept="video/*" multiple hidden onChange={onImport} />
-        <p className="hint">Import local video, then add it to a track or drag it onto the timeline.</p>
+        <p className="hint">{restoredProject ? "Choose the original source files. FrameForge matches them by filename and duration." : "Import local video, then add it to a track or drag it onto the timeline."}</p>
+        {restoredProject && restoredProject.assets.map((saved) => (
+          <div key={saved.id} className={assets.some((asset) => asset.id === saved.id) ? "relink-status linked" : "relink-status missing"}>
+            <span>{assets.some((asset) => asset.id === saved.id) ? "✓" : "!"}</span>{saved.name}<small>{assets.some((asset) => asset.id === saved.id) ? "linked" : "missing source"}</small>
+          </div>
+        ))}
         {error && <p role="alert" className="error-message">{error}</p>}
         <div className="asset-list">
           {!assets.length && <p className="muted">No media imported</p>}
@@ -342,6 +404,7 @@ export function Editor() {
           <div><strong>Untitled project</strong><span className="pill">Versioned project manifest</span><small className="save-status">{saveStatus}</small></div>
           <div className="history-buttons">
             <button onClick={saveProject} title="Persist timeline metadata in this browser">Save project</button>
+            <button onClick={restoreProject} title="Restore saved timeline and relink its source files">Restore project</button>
             <button onClick={inspectSavedProject} title="Validate the locally saved manifest">Check saved</button>
             <button disabled={!history.past.length} onClick={() => dispatch({ type: "undo" })} title="Undo (Ctrl/Cmd+Z)">↶ Undo</button>
             <button disabled={!history.future.length} onClick={() => dispatch({ type: "redo" })} title="Redo (Ctrl/Cmd+Shift+Z)">↷ Redo</button>
