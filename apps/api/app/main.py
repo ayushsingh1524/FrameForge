@@ -1,4 +1,8 @@
-from fastapi import FastAPI
+import json
+import os
+
+from fastapi import FastAPI, HTTPException
+from openai import OpenAI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, model_validator
 
@@ -8,6 +12,7 @@ app = FastAPI(title="FrameForge API", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origin_regex=r"https://[a-zA-Z0-9-]+-3000\.app\.github\.dev",
     allow_credentials=False,
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type"],
@@ -106,3 +111,80 @@ def validate_project(payload: ProjectManifest) -> dict[str, int | bool]:
         "asset_count": len(payload.assets),
         "clip_count": len(payload.timeline.clips),
     }
+
+
+class AiTimelineClip(BaseModel):
+    id: str = Field(min_length=1, max_length=128)
+    trackId: str = Field(min_length=1, max_length=128)
+    timelineStart: float = Field(ge=0)
+    sourceIn: float = Field(ge=0)
+    sourceOut: float = Field(gt=0)
+
+
+class AiTimelineTrack(BaseModel):
+    id: str = Field(min_length=1, max_length=128)
+    kind: str
+
+
+class AiEditRequest(BaseModel):
+    instruction: str = Field(min_length=1, max_length=1000)
+    clips: list[AiTimelineClip] = Field(min_length=1, max_length=200)
+    tracks: list[AiTimelineTrack] = Field(min_length=1, max_length=100)
+
+
+AI_EDIT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "type": {"type": "string", "enum": ["split", "remove", "move", "trim"]},
+        "clipId": {"type": "string"},
+        "at": {"type": ["number", "null"]},
+        "trackId": {"type": ["string", "null"]},
+        "timelineStart": {"type": ["number", "null"]},
+        "sourceIn": {"type": ["number", "null"]},
+        "sourceOut": {"type": ["number", "null"]},
+    },
+    "required": ["type", "clipId", "at", "trackId", "timelineStart", "sourceIn", "sourceOut"],
+    "additionalProperties": False,
+}
+
+
+def plan_ai_edit(payload: AiEditRequest) -> dict:
+    if not os.getenv("OPENAI_API_KEY"):
+        raise HTTPException(status_code=503, detail="OPENAI_API_KEY is not configured on the API server.")
+
+    context = {
+        "clips": [clip.model_dump() for clip in payload.clips],
+        "tracks": [track.model_dump() for track in payload.tracks],
+    }
+    client = OpenAI()
+    response = client.responses.create(
+        model=os.getenv("FRAMEFORGE_AI_MODEL", "gpt-5.6-luna"),
+        store=False,
+        instructions=(
+            "You are FrameForge's edit planner. Convert exactly one user request into exactly one "
+            "structured timeline command. Use only IDs present in the supplied timeline. Never invent "
+            "clips or tracks. Times are seconds. For relative language such as first/second clip, infer "
+            "from timelineStart order. Return the closest supported command: split, remove, move, or trim."
+        ),
+        input=f"Timeline: {json.dumps(context)}\nUser edit request: {payload.instruction}",
+        text={
+            "format": {
+                "type": "json_schema",
+                "name": "frameforge_edit_command",
+                "strict": True,
+                "schema": AI_EDIT_SCHEMA,
+            }
+        },
+    )
+    try:
+        command = json.loads(response.output_text)
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise HTTPException(status_code=502, detail="The AI planner returned an invalid command.") from exc
+    return {"command": command, "model": response.model}
+
+
+@app.post("/api/ai/edit-command")
+def ai_edit_command(payload: AiEditRequest) -> dict:
+    # The model only proposes a command. The browser independently validates
+    # the proposal against the live timeline before dispatching an undoable action.
+    return plan_ai_edit(payload)
