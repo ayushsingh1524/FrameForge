@@ -17,6 +17,7 @@ import { parseLocalEditInstruction, validateAiEditCommand, type AiEditCommand } 
 import { createProjectManifest, loadProjectManifest, relinkAssetId, saveProjectManifest, type ProjectManifest } from "@/lib/project-manifest";
 import {
   activeVideoClip,
+  applyAction,
   formatTime,
   historyReducer,
   initialHistory,
@@ -375,7 +376,7 @@ export function Editor() {
   const runAiEdit = useCallback(async () => {
     setAiBusy(true);
     setAiStatus("Asking AI planner…");
-    let command: AiEditCommand | null = null;
+    let commands: AiEditCommand[] = [];
     try {
       const response = await fetch("/api/ai/edit-command", {
         method: "POST",
@@ -390,27 +391,39 @@ export function Editor() {
         const body = await response.json().catch(() => ({}));
         throw new Error(body.detail ?? `AI planner failed (${response.status})`);
       }
-      const body = await response.json() as { command: AiEditCommand };
-      command = body.command;
+      const body = await response.json() as { commands: AiEditCommand[] };
+      commands = body.commands;
+      if (!Array.isArray(commands) || commands.length < 1 || commands.length > 5) {
+        throw new Error("AI returned an invalid plan size.");
+      }
     } catch (error) {
-      // Keep the deterministic parser as an explicit development fallback so
-      // the editor remains testable without credentials or network access.
-      command = parseLocalEditInstruction(aiInstruction, timeline);
-      if (!command) {
+      const fallback = parseLocalEditInstruction(aiInstruction, timeline);
+      if (!fallback) {
         setAiStatus(`AI unavailable: ${error instanceof Error ? error.message : "request failed"}`);
         setAiBusy(false);
         return;
       }
+      commands = [fallback];
       setAiStatus("AI unavailable · using deterministic fallback");
     }
-    const result = validateAiEditCommand(command, timeline);
-    if (!result.ok) {
-      setAiStatus(`Rejected: ${result.error}`);
-      setAiBusy(false);
-      return;
+
+    let simulated = timeline;
+    const actions: TimelineAction[] = [];
+    const summaries: string[] = [];
+    for (let index = 0; index < commands.length; index += 1) {
+      const result = validateAiEditCommand(commands[index], simulated);
+      if (!result.ok) {
+        setAiStatus(`Rejected plan at step ${index + 1}: ${result.error} · nothing changed`);
+        setAiBusy(false);
+        return;
+      }
+      actions.push(result.action);
+      summaries.push(result.summary);
+      simulated = applyAction(simulated, result.action);
     }
-    commit(result.action);
-    setAiStatus(`Applied safely: ${result.summary} · undo available`);
+
+    commit({ type: "batch", actions });
+    setAiStatus(`Applied ${actions.length}-step plan safely: ${summaries.join(" → ")} · one undo available`);
     setAiInstruction("");
     setAiBusy(false);
   }, [aiInstruction, timeline, commit]);
@@ -549,10 +562,10 @@ export function Editor() {
         <div className="section-label">AI EDIT COMMANDS</div>
         <div className="ai-command-box">
           <textarea value={aiInstruction} onChange={(event) => setAiInstruction(event.target.value)}
-            placeholder="Split the first clip at 3 seconds" rows={3} />
-          <button className="primary" disabled={aiBusy || !aiInstruction.trim() || !timeline.clips.length} onClick={() => void runAiEdit()}>{aiBusy ? "Planning…" : "Apply AI command"}</button>
+            placeholder="Split the first clip at 3 seconds, then move it to Video 2" rows={3} />
+          <button className="primary" disabled={aiBusy || !aiInstruction.trim() || !timeline.clips.length} onClick={() => void runAiEdit()}>{aiBusy ? "Planning…" : "Apply AI plan"}</button>
           <small>{aiStatus}</small>
-          <p className="hint">Milestone 4B sends the instruction and timeline metadata to the server-side AI planner. Its structured proposal is validated in the browser before it reaches the undoable timeline engine. A limited deterministic parser remains as a development fallback.</p>
+          <p className="hint">Milestone 5A can propose up to five ordered edits. Every step is validated against a simulated timeline first; the plan is applied atomically only when all steps are safe, so one Undo reverses the whole plan.</p>
         </div>
         <div className="section-label">CLIP INSPECTOR</div>
         {selected && selectedAsset ? (

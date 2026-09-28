@@ -29,7 +29,8 @@ export type TimelineAction =
   | { type: "split"; clipId: string; at: number; rightId: string }
   | { type: "move"; clipId: string; trackId: string; timelineStart: number }
   | { type: "add-track"; track: Track }
-  | { type: "restore"; timeline: Timeline };
+  | { type: "restore"; timeline: Timeline }
+  | { type: "batch"; actions: TimelineAction[] };
 
 export const initialTimeline: Timeline = {
   tracks: [
@@ -73,6 +74,8 @@ export function activeVideoClip(timeline: Timeline, time: number): TimelineClip 
 
 export function applyAction(state: Timeline, action: TimelineAction): Timeline {
   switch (action.type) {
+    case "batch":
+      return action.actions.reduce((current, step) => applyAction(current, step), state);
     case "restore":
       return action.timeline;
     case "add":
