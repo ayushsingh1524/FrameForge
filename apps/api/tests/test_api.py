@@ -28,7 +28,7 @@ def test_rejects_inverted_clip_range():
 
 
 def test_ai_edit_requires_server_key(monkeypatch):
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     response = client.post(
         "/api/ai/edit-command",
         json={
@@ -38,4 +38,4 @@ def test_ai_edit_requires_server_key(monkeypatch):
         },
     )
     assert response.status_code == 503
-    assert "OPENAI_API_KEY" in response.json()["detail"]
+    assert "GEMINI_API_KEY" in response.json()["detail"]
