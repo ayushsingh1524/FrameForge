@@ -2,7 +2,8 @@ import json
 import os
 
 from fastapi import FastAPI, HTTPException
-from openai import OpenAI
+from google import genai
+from google.genai import types
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, model_validator
 
@@ -149,38 +150,35 @@ AI_EDIT_SCHEMA = {
 
 
 def plan_ai_edit(payload: AiEditRequest) -> dict:
-    if not os.getenv("OPENAI_API_KEY"):
-        raise HTTPException(status_code=503, detail="OPENAI_API_KEY is not configured on the API server.")
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="GEMINI_API_KEY is not configured on the API server.")
 
     context = {
         "clips": [clip.model_dump() for clip in payload.clips],
         "tracks": [track.model_dump() for track in payload.tracks],
     }
-    client = OpenAI()
-    response = client.responses.create(
-        model=os.getenv("FRAMEFORGE_AI_MODEL", "gpt-5.6-luna"),
-        store=False,
-        instructions=(
-            "You are FrameForge's edit planner. Convert exactly one user request into exactly one "
-            "structured timeline command. Use only IDs present in the supplied timeline. Never invent "
-            "clips or tracks. Times are seconds. For relative language such as first/second clip, infer "
-            "from timelineStart order. Return the closest supported command: split, remove, move, or trim."
-        ),
-        input=f"Timeline: {json.dumps(context)}\nUser edit request: {payload.instruction}",
-        text={
-            "format": {
-                "type": "json_schema",
-                "name": "frameforge_edit_command",
-                "strict": True,
-                "schema": AI_EDIT_SCHEMA,
-            }
-        },
+    client = genai.Client(api_key=api_key)
+    prompt = (
+        "You are FrameForge's edit planner. Convert exactly one user request into exactly one "
+        "structured timeline command. Use only IDs present in the supplied timeline. Never invent "
+        "clips or tracks. Times are seconds. For relative language such as first/second clip, infer "
+        "from timelineStart order. Return the closest supported command: split, remove, move, or trim.\n\n"
+        f"Timeline: {json.dumps(context)}\nUser edit request: {payload.instruction}"
     )
     try:
-        command = json.loads(response.output_text)
-    except (json.JSONDecodeError, TypeError) as exc:
-        raise HTTPException(status_code=502, detail="The AI planner returned an invalid command.") from exc
-    return {"command": command, "model": response.model}
+        response = client.models.generate_content(
+            model=os.getenv("FRAMEFORGE_AI_MODEL", "gemini-2.5-flash-lite"),
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_json_schema=AI_EDIT_SCHEMA,
+            ),
+        )
+        command = json.loads(response.text)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Gemini planner failed: {type(exc).__name__}") from exc
+    return {"command": command, "model": os.getenv("FRAMEFORGE_AI_MODEL", "gemini-2.5-flash-lite")}
 
 
 @app.post("/api/ai/edit-command")
