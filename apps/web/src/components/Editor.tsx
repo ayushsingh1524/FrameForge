@@ -12,6 +12,7 @@ import {
   useState,
 } from "react";
 import { generateThumbnail, previewSourceTime } from "@/lib/media-preview";
+import { decodeWaveform } from "@/lib/audio-waveform";
 import {
   activeVideoClip,
   formatTime,
@@ -38,6 +39,8 @@ export function Editor() {
   const [error, setError] = useState("");
   const [zoom, setZoom] = useState(1);
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
+  const [waveforms, setWaveforms] = useState<Record<string, number[]>>({});
+  const [waveformStatus, setWaveformStatus] = useState<Record<string, "reading" | "ready" | "unavailable">>({});
   const thumbnailsStarted = useRef(new Set<string>());
   const inputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -68,7 +71,15 @@ export function Editor() {
     const next = incoming.map((file): MediaAsset => {
       const objectUrl = URL.createObjectURL(file);
       assetUrls.current.push(objectUrl);
-      return { id: crypto.randomUUID(), name: file.name, objectUrl, duration: 0, kind: "video" };
+      const id = crypto.randomUUID();
+      setWaveformStatus((current) => ({ ...current, [id]: "reading" }));
+      decodeWaveform(file)
+        .then((peaks) => {
+          setWaveforms((current) => ({ ...current, [id]: peaks }));
+          setWaveformStatus((current) => ({ ...current, [id]: "ready" }));
+        })
+        .catch(() => setWaveformStatus((current) => ({ ...current, [id]: "unavailable" })));
+      return { id, name: file.name, objectUrl, duration: 0, kind: "video" };
     });
     setAssets((current) => [...current, ...next]);
   }, []);
@@ -300,7 +311,7 @@ export function Editor() {
               {thumbnails[asset.id] ? (
                 <img className="asset-thumbnail" src={thumbnails[asset.id]} alt="" width={64} height={36} />
               ) : <span className="clip-icon">▶</span>}
-              <span className="asset-text"><strong title={asset.name}>{asset.name}</strong><small>{asset.duration ? formatTime(asset.duration) : "Reading metadata…"}</small></span>
+              <span className="asset-text"><strong title={asset.name}>{asset.name}</strong><small>{asset.duration ? formatTime(asset.duration) : "Reading metadata…"} · audio {waveformStatus[asset.id] === "ready" ? "mapped" : waveformStatus[asset.id] === "unavailable" ? "unavailable" : "reading…"}</small></span>
               <button className="asset-add" disabled={!asset.duration} onClick={() => addAsset(asset)} aria-label={`Add ${asset.name} to timeline`}>+</button>
             </div>
           ))}
@@ -335,7 +346,7 @@ export function Editor() {
             <button disabled={!duration} onClick={() => seek(0)} aria-label="Go to beginning">⏮</button>
             <button className="play-button" disabled={!duration} onClick={togglePlayback} aria-label={playing ? "Pause" : "Play"}>{playing ? "❚❚" : "▶"}</button>
             <span className="timecode">{formatTime(playhead)} / {formatTime(duration)}</span>
-            <span className="control-note">Thumbnail previews · single-source playback</span>
+            <span className="control-note">Thumbnail + embedded-audio waveform preview · single-source playback</span>
           </div>
         </div>
 
@@ -374,7 +385,21 @@ export function Editor() {
                       </button>
                     );
                   })}
-                  {track.kind === "audio" && <span className="track-placeholder">Audio lane reserved for upcoming audio engine</span>}
+                  {track.kind === "audio" && timeline.clips.map((clip) => {
+                    const peaks = waveforms[clip.assetId];
+                    if (!peaks?.length) return null;
+                    const asset = assets.find((item) => item.id === clip.assetId);
+                    return (
+                      <div key={`wave-${clip.id}`} className="waveform-clip"
+                        style={{ left: clip.timelineStart * pixels, width: Math.max(35, length(clip) * pixels) }}
+                        title={`${asset?.name ?? "Video"} embedded audio preview`}>
+                        <span className="waveform-bars" aria-hidden="true">
+                          {peaks.map((peak, index) => <i key={index} style={{ height: `${Math.max(8, peak * 90)}%` }} />)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {track.kind === "audio" && !Object.keys(waveforms).length && <span className="track-placeholder">Embedded audio waveforms appear here after import</span>}
                 </div>
               </div>
             ))}
@@ -411,7 +436,7 @@ export function Editor() {
             <p className="hint">Changes are non-destructive and undoable. Dragging a trim slider creates multiple undo steps in this prototype.</p>
           </>
         ) : <p className="muted">Select a timeline clip to inspect it.</p>}
-        <div className="inspector-footer"><span className="pill">Next milestone</span><p className="muted">Audio mixing, composited preview, persistent projects and export are not implemented.</p></div>
+        <div className="inspector-footer"><span className="pill">Audio preview</span><p className="muted">Embedded audio waveforms are decoded locally for visualization. Independent audio clips, mixing, compositing, persistence and export are not implemented yet.</p></div>
       </aside>
     </main>
   );
