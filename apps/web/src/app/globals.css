@@ -29,3 +29,6 @@
 .waveform-clip{position:absolute;top:8px;height:56px;border:1px solid #385b64;border-radius:7px;background:#142a31;overflow:hidden;pointer-events:none}
 .waveform-bars{height:100%;display:flex;align-items:center;gap:1px;padding:6px;opacity:.9}
 .waveform-bars i{display:block;flex:1;min-width:1px;max-width:4px;background:#7cc6c4;border-radius:2px}
+
+/* Milestone 3A: project manifest persistence */
+.save-status{display:block;margin-top:5px;color:var(--muted);font-size:10px}
