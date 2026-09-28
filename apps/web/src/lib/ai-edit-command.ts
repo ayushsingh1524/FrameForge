@@ -1,10 +1,10 @@
 import type { Timeline, TimelineAction } from "./editor-engine";
 
 export type AiEditCommand =
-  | { type: "split"; clipId: string; at: number }
-  | { type: "remove"; clipId: string }
-  | { type: "move"; clipId: string; trackId: string; timelineStart: number }
-  | { type: "trim"; clipId: string; sourceIn: number; sourceOut: number };
+  | { type: "split"; clipId: string; at: number; resultRef?: string | null }
+  | { type: "remove"; clipId: string; resultRef?: null }
+  | { type: "move"; clipId: string; trackId: string; timelineStart: number; resultRef?: null }
+  | { type: "trim"; clipId: string; sourceIn: number; sourceOut: number; resultRef?: null };
 
 export type CommandResult =
   | { ok: true; action: TimelineAction; summary: string }

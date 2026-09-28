@@ -138,13 +138,14 @@ AI_COMMAND_SCHEMA = {
     "properties": {
         "type": {"type": "string", "enum": ["split", "remove", "move", "trim"]},
         "clipId": {"type": "string"},
+        "resultRef": {"type": ["string", "null"]},
         "at": {"type": ["number", "null"]},
         "trackId": {"type": ["string", "null"]},
         "timelineStart": {"type": ["number", "null"]},
         "sourceIn": {"type": ["number", "null"]},
         "sourceOut": {"type": ["number", "null"]},
     },
-    "required": ["type", "clipId", "at", "trackId", "timelineStart", "sourceIn", "sourceOut"],
+    "required": ["type", "clipId", "resultRef", "at", "trackId", "timelineStart", "sourceIn", "sourceOut"],
     "additionalProperties": False,
 }
 
@@ -170,9 +171,13 @@ def plan_ai_edit(payload: AiEditRequest) -> dict:
     client = genai.Client(api_key=api_key)
     prompt = (
         "You are FrameForge's edit planner. Convert the user request into an ordered plan of 1 to 5 "
-        "structured timeline commands. Use only IDs present in the supplied timeline. Never invent "
-        "clips or tracks. Times are seconds. For relative language such as first/second clip, infer "
-        "from timelineStart order. Return only supported commands: split, remove, move, or trim. Keep the plan minimal. \n\n"
+        "structured timeline commands. Existing clipId values must use IDs from the supplied timeline. "
+        "For a split command, resultRef may name the newly created RIGHT half using a short symbolic "
+        "reference such as new-right. Later commands may use that resultRef string as clipId to target "
+        "that generated clip. Never use a symbolic clipId before the split that defines it, and never "
+        "invent track IDs. resultRef must be null for non-split commands. Times are seconds. For relative "
+        "language such as first/second clip, infer from timelineStart order. Return only supported commands: "
+        "split, remove, move, or trim. Keep the plan minimal. \n\n"
         f"Timeline: {json.dumps(context)}\nUser edit request: {payload.instruction}"
     )
     configured_model = os.getenv("FRAMEFORGE_AI_MODEL")

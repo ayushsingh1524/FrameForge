@@ -410,12 +410,29 @@ export function Editor() {
     let simulated = timeline;
     const actions: TimelineAction[] = [];
     const summaries: string[] = [];
+    const clipRefs = new Map<string, string>();
     for (let index = 0; index < commands.length; index += 1) {
-      const result = validateAiEditCommand(commands[index], simulated);
+      const proposed = commands[index];
+      const resolvedClipId = clipRefs.get(proposed.clipId) ?? proposed.clipId;
+      const command = { ...proposed, clipId: resolvedClipId } as AiEditCommand;
+      const result = validateAiEditCommand(command, simulated);
       if (!result.ok) {
         setAiStatus(`Rejected plan at step ${index + 1}: ${result.error} · nothing changed`);
         setAiBusy(false);
         return;
+      }
+      if (command.type === "split" && command.resultRef) {
+        if (clipRefs.has(command.resultRef) || timeline.clips.some((clip) => clip.id === command.resultRef)) {
+          setAiStatus(`Rejected plan at step ${index + 1}: duplicate split result reference · nothing changed`);
+          setAiBusy(false);
+          return;
+        }
+        if (result.action.type !== "split") {
+          setAiStatus(`Rejected plan at step ${index + 1}: invalid split result · nothing changed`);
+          setAiBusy(false);
+          return;
+        }
+        clipRefs.set(command.resultRef, result.action.rightId);
       }
       actions.push(result.action);
       summaries.push(result.summary);
@@ -565,7 +582,7 @@ export function Editor() {
             placeholder="Split the first clip at 3 seconds, then move it to Video 2" rows={3} />
           <button className="primary" disabled={aiBusy || !aiInstruction.trim() || !timeline.clips.length} onClick={() => void runAiEdit()}>{aiBusy ? "Planning…" : "Apply AI plan"}</button>
           <small>{aiStatus}</small>
-          <p className="hint">Milestone 5A can propose up to five ordered edits. Every step is validated against a simulated timeline first; the plan is applied atomically only when all steps are safe, so one Undo reverses the whole plan.</p>
+          <p className="hint">Milestone 5B supports dependent plans: a split can name its new right half and later steps can safely target that generated clip. Every step is still simulated and validated before one atomic commit.</p>
         </div>
         <div className="section-label">CLIP INSPECTOR</div>
         {selected && selectedAsset ? (
