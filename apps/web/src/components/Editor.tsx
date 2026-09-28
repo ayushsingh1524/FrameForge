@@ -372,20 +372,12 @@ export function Editor() {
     }
   };
 
-  const apiBaseUrl = () => {
-    if (process.env.NEXT_PUBLIC_FRAMEFORGE_API_URL) return process.env.NEXT_PUBLIC_FRAMEFORGE_API_URL;
-    if (window.location.hostname.endsWith(".app.github.dev")) {
-      return `${window.location.protocol}//${window.location.hostname.replace(/-3000(?=\\.)/, "-8000")}`;
-    }
-    return "http://127.0.0.1:8000";
-  };
-
   const runAiEdit = useCallback(async () => {
     setAiBusy(true);
     setAiStatus("Asking AI planner…");
     let command: AiEditCommand | null = null;
     try {
-      const response = await fetch(`${apiBaseUrl()}/api/ai/edit-command`, {
+      const response = await fetch("/api/ai/edit-command", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
