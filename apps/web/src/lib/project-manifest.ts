@@ -63,3 +63,13 @@ export function loadProjectManifest(): ProjectManifest | null {
     return null;
   }
 }
+
+export function relinkAssetId(
+  savedAssets: PersistedAsset[],
+  file: { name: string; duration: number }
+): string | null {
+  const matches = savedAssets.filter(
+    (asset) => asset.name === file.name && Math.abs(asset.duration - file.duration) < 0.25
+  );
+  return matches.length === 1 ? matches[0].id : null;
+}

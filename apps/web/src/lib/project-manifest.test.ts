@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isProjectManifest } from "./project-manifest";
+import { isProjectManifest, relinkAssetId } from "./project-manifest";
 
 test("accepts a versioned project manifest", () => {
   assert.equal(isProjectManifest({
@@ -12,4 +12,10 @@ test("accepts a versioned project manifest", () => {
 test("rejects unsupported and malformed manifests", () => {
   assert.equal(isProjectManifest({ schemaVersion: 2, projectId: "p1", assets: [], timeline: { tracks: [], clips: [] } }), false);
   assert.equal(isProjectManifest(null), false);
+});
+
+test("relinks only an unambiguous filename and duration match", () => {
+  const assets = [{ id: "a1", name: "clip.mp4", duration: 5, kind: "video" as const }];
+  assert.equal(relinkAssetId(assets, { name: "clip.mp4", duration: 5.1 }), "a1");
+  assert.equal(relinkAssetId(assets, { name: "other.mp4", duration: 5 }), null);
 });

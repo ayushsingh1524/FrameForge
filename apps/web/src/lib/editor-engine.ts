@@ -28,7 +28,8 @@ export type TimelineAction =
   | { type: "trim"; clipId: string; sourceIn: number; sourceOut: number }
   | { type: "split"; clipId: string; at: number; rightId: string }
   | { type: "move"; clipId: string; trackId: string; timelineStart: number }
-  | { type: "add-track"; track: Track };
+  | { type: "add-track"; track: Track }
+  | { type: "restore"; timeline: Timeline };
 
 export const initialTimeline: Timeline = {
   tracks: [
@@ -72,6 +73,8 @@ export function activeVideoClip(timeline: Timeline, time: number): TimelineClip 
 
 export function applyAction(state: Timeline, action: TimelineAction): Timeline {
   switch (action.type) {
+    case "restore":
+      return action.timeline;
     case "add":
       if (
         !state.tracks.some((track) => track.id === action.clip.trackId && track.kind === "video") ||
