@@ -166,22 +166,39 @@ def plan_ai_edit(payload: AiEditRequest) -> dict:
         "from timelineStart order. Return the closest supported command: split, remove, move, or trim.\n\n"
         f"Timeline: {json.dumps(context)}\nUser edit request: {payload.instruction}"
     )
-    try:
-        response = client.models.generate_content(
-            model=os.getenv("FRAMEFORGE_AI_MODEL", "gemini-3.7-flash"),
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_json_schema=AI_EDIT_SCHEMA,
-            ),
-        )
-        command = json.loads(response.text)
-    except Exception as exc:
-        # Surface Gemini's HTTP status/message for development diagnostics; never include credentials.
-        status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
-        message = str(exc).replace(api_key, "[redacted]")
-        raise HTTPException(status_code=502, detail=f"Gemini planner failed ({status or 'unknown'}): {message[:500]}") from exc
-    return {"command": command, "model": os.getenv("FRAMEFORGE_AI_MODEL", "gemini-3.7-flash")}
+    configured_model = os.getenv("FRAMEFORGE_AI_MODEL")
+    models = [configured_model] if configured_model else [
+        "gemini-3.1-flash-lite",
+        "gemini-3.5-flash-lite",
+        "gemini-3.7-flash",
+    ]
+    last_error = None
+    for model in models:
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_json_schema=AI_EDIT_SCHEMA,
+                ),
+            )
+            command = json.loads(response.text)
+            return {"command": command, "model": model}
+        except Exception as exc:
+            last_error = exc
+            status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+            # Only fail over for provider capacity/rate-limit errors.
+            if status not in (429, 503):
+                break
+
+    assert last_error is not None
+    status = getattr(last_error, "status_code", None) or getattr(last_error, "code", None)
+    message = str(last_error).replace(api_key, "[redacted]")
+    raise HTTPException(
+        status_code=502,
+        detail=f"Gemini planner failed after model fallback ({status or 'unknown'}): {message[:500]}",
+    )
 
 
 @app.post("/api/ai/edit-command")
