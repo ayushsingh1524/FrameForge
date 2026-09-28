@@ -168,7 +168,7 @@ def plan_ai_edit(payload: AiEditRequest) -> dict:
     )
     try:
         response = client.models.generate_content(
-            model=os.getenv("FRAMEFORGE_AI_MODEL", "gemini-2.5-flash-lite"),
+            model=os.getenv("FRAMEFORGE_AI_MODEL", "gemini-3.5-flash-lite"),
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
