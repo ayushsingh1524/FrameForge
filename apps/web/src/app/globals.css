@@ -36,3 +36,6 @@
 /* Milestone 3B: restored-project media relinking */
 .relink-status{display:grid;grid-template-columns:20px minmax(0,1fr) auto;align-items:center;gap:7px;margin-top:8px;padding:8px;border:1px solid var(--line);border-radius:8px;font-size:11px}
 .relink-status small{color:var(--muted)}.relink-status.linked{border-color:#35675f}.relink-status.missing{border-color:#75525b}
+
+/* Milestone 4A: validated natural-language edit command UI */
+.ai-command-box{display:grid;gap:8px;margin:8px 0 18px}.ai-command-box textarea{width:100%;resize:vertical;min-height:62px;background:#10151b;border:1px solid var(--line);border-radius:8px;color:var(--text);padding:9px;font:inherit}.ai-command-box small{color:var(--muted);line-height:1.35}
