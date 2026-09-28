@@ -168,7 +168,7 @@ def plan_ai_edit(payload: AiEditRequest) -> dict:
     )
     try:
         response = client.models.generate_content(
-            model=os.getenv("FRAMEFORGE_AI_MODEL", "gemini-3.5-flash-lite"),
+            model=os.getenv("FRAMEFORGE_AI_MODEL", "gemini-3.8-flash"),
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
@@ -181,7 +181,7 @@ def plan_ai_edit(payload: AiEditRequest) -> dict:
         status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
         message = str(exc).replace(api_key, "[redacted]")
         raise HTTPException(status_code=502, detail=f"Gemini planner failed ({status or 'unknown'}): {message[:500]}") from exc
-    return {"command": command, "model": os.getenv("FRAMEFORGE_AI_MODEL", "gemini-2.5-flash-lite")}
+    return {"command": command, "model": os.getenv("FRAMEFORGE_AI_MODEL", "gemini-3.8-flash")}
 
 
 @app.post("/api/ai/edit-command")
